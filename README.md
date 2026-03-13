@@ -6,6 +6,9 @@
 
 **Smart Translator** is an Agentic AI system designed to translate document images while preserving their original layout, fonts, and visual structure. Orchestrated by a local LLM supervisor via the Model Context Protocol (MCP), the system coordinates specialized tools for OCR, translation, font synthesis, and image inpainting. Additionally, it features a RAG-based "Chat-with-Document" capability.
 
+"Originally developed at Hochschule München – mirrored from university GitLab."
+
+
 ---
 
 ## Project Structure
@@ -38,6 +41,20 @@ The project is modularized into specific agents and tools:
 
 ## Archi
 ![alt text](<archi.png>)
+
+
+---
+
+## Dummy Run
+
+![alt text](dummy_ablauf/step-1.png) 
+![alt text](dummy_ablauf/step-2.png) 
+![alt text](dummy_ablauf/step-3.png) 
+![alt text](dummy_ablauf/step-4.png) 
+![alt text](dummy_ablauf/step-5.png) 
+![alt text](dummy_ablauf/step-6.png) 
+![alt text](dummy_ablauf/step-7.png)
+
 
 ---
 
