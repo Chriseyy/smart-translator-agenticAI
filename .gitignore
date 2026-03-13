@@ -54,3 +54,5 @@ sample.png
 __pycache__/
 
 src/test.py
+
+temp_output/

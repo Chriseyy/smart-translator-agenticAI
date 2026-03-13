@@ -108,7 +108,7 @@ def apply_paddlex_langchain_shims() -> None:
     _shim_langchain_text_splitter()
 
 
-def resolve_layout_output_dir(image_path: str) -> tuple[str, str]:
+def resolve_layout_output_dir(image_path: str) -> str:
     """
     Compute the standardized output directory for a layout-detector run.
 
@@ -124,8 +124,8 @@ def resolve_layout_output_dir(image_path: str) -> tuple[str, str]:
         image_path: Absolute or relative path to the image being processed.
 
     Returns:
-        tuple[str, str]: (base_name, normalized_output_dir) for the image.
+        str: Normalized output directory path for this image.
     """
     base = os.path.splitext(os.path.basename(image_path))[0]
     fixed_output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "layout_detector", base)
-    return base, os.path.normpath(fixed_output_dir)
+    return os.path.normpath(fixed_output_dir)

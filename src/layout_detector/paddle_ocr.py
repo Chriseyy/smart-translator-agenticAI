@@ -38,6 +38,14 @@ from PIL import Image, ImageDraw
 
 from .utils import apply_paddlex_langchain_shims
 
+# Disable oneDNN (MKL-DNN) BEFORE importing paddle/paddleocr.
+# PaddlePaddle 3.x + oneDNN crashes with:
+#   NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+#   [pir::ArrayAttribute<pir::DoubleAttribute>] (onednn_instruction.cc)
+import os as _os
+_os.environ.setdefault("FLAGS_use_mkldnn", "0")
+_os.environ.setdefault("PADDLE_DISABLE_MKLDNN", "1")
+
 # Apply shims BEFORE importing paddleocr (which pulls paddlex)
 apply_paddlex_langchain_shims()
 
@@ -62,10 +70,41 @@ MAX_SIDE_LIMIT = 4000  # PaddleOCR default max side; resize bigger inputs proact
 _OCR_SINGLETON: Optional[PaddleOCR] = None
 
 
+def _patch_paddle_disable_mkldnn() -> None:
+    """
+    Monkey-patch paddle.inference.Config so every predictor disables oneDNN.
+
+    PaddlePaddle 3.x compiled with oneDNN ignores FLAGS_use_mkldnn env vars and
+    crashes at inference with:
+        NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
+        [pir::ArrayAttribute<pir::DoubleAttribute>] (onednn_instruction.cc:116)
+
+    The only reliable fix is to intercept Config creation and call
+    disable_mkldnn() before the predictor is built.
+    """
+    try:
+        import paddle.inference as _pi
+        _OrigConfig = _pi.Config
+
+        class _NoDnnConfig(_OrigConfig):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                try:
+                    self.disable_mkldnn()
+                except Exception:
+                    pass
+
+        _pi.Config = _NoDnnConfig
+        print("paddle_ocr: oneDNN monkey-patch applied (paddle.inference.Config.disable_mkldnn)")
+    except Exception as e:
+        print(f"paddle_ocr: WARNING - could not apply oneDNN patch: {e}")
+
+
 def _get_ocr_instance() -> PaddleOCR:
     """Return a cached PaddleOCR instance to avoid repeated heavy allocations."""
     global _OCR_SINGLETON
     if _OCR_SINGLETON is None:
+        _patch_paddle_disable_mkldnn()
         _OCR_SINGLETON = PaddleOCR(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,

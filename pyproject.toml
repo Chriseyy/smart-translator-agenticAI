@@ -31,8 +31,8 @@ dependencies = [
     "ipykernel>=7.1.0",
     "jupyterlab>=4.4.10",
     "matplotlib>=3.10.7",
-    "paddleocr[all]>=3.3.2",
-    "paddlepaddle>=3.2.2",
+    "paddleocr[all]>=3.3.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "paddlepaddle==3.2.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "python-doctr>=1.0.0",
     "tqdm>=4.67.1",
     "langchain-huggingface>=1.2.0",
@@ -48,3 +48,6 @@ dev = [
     "notebook>=7.4.7",
     "jupyterlab>=4.4.10",
 ]
+
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]

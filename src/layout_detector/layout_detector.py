@@ -1,4 +1,4 @@
-"""layout_detector.py
+r"""layout_detector.py
 ----------------------
 High-level FastMCP-style layout detector packaged as a class.
 
