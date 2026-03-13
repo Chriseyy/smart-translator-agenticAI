@@ -1,12 +1,12 @@
-# ── MUST BE FIRST: disable Paddle oneDNN before any import ──────────────────
-# PaddlePaddle 3.x + oneDNN crashes: NotImplementedError:
-#   ConvertPirAttribute2RuntimeAttribute not support
+# Disable PaddlePaddle oneDNN BEFORE any other import.
+# PaddlePaddle 3.x compiled with oneDNN crashes at inference with:
+#   NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
 #   [pir::ArrayAttribute<pir::DoubleAttribute>] (onednn_instruction.cc:116)
+# paddle_ocr.py also patches paddle.inference.Config as a belt-and-suspenders fix.
 import os as _env_fix
 _env_fix.environ["FLAGS_use_mkldnn"] = "0"
 _env_fix.environ["PADDLE_DISABLE_MKLDNN"] = "1"
 _env_fix.environ["FLAGS_enable_pir_in_executor"] = "0"
-# ────────────────────────────────────────────────────────────────────────────
 
 from fastmcp import FastMCP
 from typing import List, Dict, Union
@@ -233,7 +233,6 @@ def detect_layout(image_path: str) -> Dict:
 
     print("TOOLS_SERVER: Running Outline Detection...")
     try:
-        # outline_detector_image.py appends base_name internally — pass root only
         outline_result = layout_detector.get_outline(image_path, output_dir=layout_detector_root)
         working_image_path = outline_result.get("document_image", image_path)
     except Exception as e:
