@@ -39,12 +39,15 @@ from PIL import Image, ImageDraw
 from .utils import apply_paddlex_langchain_shims
 
 # Disable oneDNN (MKL-DNN) BEFORE importing paddle/paddleocr.
-# PaddlePaddle 3.x + oneDNN crashes with:
+# PaddlePaddle 3.x built with oneDNN crashes at inference with:
 #   NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
-#   [pir::ArrayAttribute<pir::DoubleAttribute>] (onednn_instruction.cc)
+#   [pir::ArrayAttribute<pir::DoubleAttribute>] (onednn_instruction.cc:116)
+# Direct assignment is required — setdefault() is silently ignored by the
+# compiled C++ inference engine once it has already been initialised.
 import os as _os
-_os.environ.setdefault("FLAGS_use_mkldnn", "0")
-_os.environ.setdefault("PADDLE_DISABLE_MKLDNN", "1")
+_os.environ["FLAGS_use_mkldnn"] = "0"
+_os.environ["PADDLE_DISABLE_MKLDNN"] = "1"
+_os.environ["FLAGS_enable_pir_in_executor"] = "0"
 
 # Apply shims BEFORE importing paddleocr (which pulls paddlex)
 apply_paddlex_langchain_shims()
@@ -71,16 +74,11 @@ _OCR_SINGLETON: Optional[PaddleOCR] = None
 
 
 def _patch_paddle_disable_mkldnn() -> None:
-    """
-    Monkey-patch paddle.inference.Config so every predictor disables oneDNN.
+    """Monkey-patch paddle.inference.Config to disable oneDNN on every predictor.
 
     PaddlePaddle 3.x compiled with oneDNN ignores FLAGS_use_mkldnn env vars and
-    crashes at inference with:
-        NotImplementedError: ConvertPirAttribute2RuntimeAttribute not support
-        [pir::ArrayAttribute<pir::DoubleAttribute>] (onednn_instruction.cc:116)
-
-    The only reliable fix is to intercept Config creation and call
-    disable_mkldnn() before the predictor is built.
+    crashes at inference. Intercepting Config.__init__ and calling
+    disable_mkldnn() there is the only reliable workaround for pre-built wheels.
     """
     try:
         import paddle.inference as _pi
@@ -95,9 +93,8 @@ def _patch_paddle_disable_mkldnn() -> None:
                     pass
 
         _pi.Config = _NoDnnConfig
-        print("paddle_ocr: oneDNN monkey-patch applied (paddle.inference.Config.disable_mkldnn)")
-    except Exception as e:
-        print(f"paddle_ocr: WARNING - could not apply oneDNN patch: {e}")
+    except Exception:
+        pass  # If paddle.inference is unavailable, env vars are the best we can do
 
 
 def _get_ocr_instance() -> PaddleOCR:
@@ -140,8 +137,18 @@ def run_ocr(image_path: str, save_dir: str = OUTPUT_DIR) -> Dict[str, Any]:
     out_dir = os.path.join(save_dir, "ocr")
     os.makedirs(out_dir, exist_ok=True)
 
+    response: Dict[str, Any] = {
+        "status": "error",
+        "input_path": image_path,
+        "ocr_image": None,
+        "ocr_json": None,
+    }
+
+    if not os.path.exists(image_path):
+        response["error"] = f"Input image not found: {image_path}"
+        return response
+
     # Resize very large images in-memory before OCR to avoid PaddleOCR max_side_limit errors.
-    # If resizing fails, we treat it as an OCR failure.
     ocr_input: Any = image_path
     try:
         with Image.open(image_path) as img:
@@ -157,43 +164,59 @@ def run_ocr(image_path: str, save_dir: str = OUTPUT_DIR) -> Dict[str, Any]:
             # PaddleOCR accepts numpy arrays directly; avoid writing temp files
             ocr_input = np.array(img)
     except Exception as e_resize:
-        raise RuntimeError(f"Resize/prep failed: {e_resize}")
+        response["error"] = f"Resize/prep failed: {e_resize}"
+        return response
 
-    response: Dict[str, Any] = {
-        "status": "error",
-        "input_path": image_path,
-        "ocr_image": None,
-        "ocr_json": None,
-    }
     try:
+        import glob as _glob
         ocr = _get_ocr_instance()
         results = ocr.predict(ocr_input)
         if not results:
             response["error"] = "No OCR results returned"
             return response
         first = results[0]
-        # Save image
+
+        # Save visualization image
+        # PaddleOCR 3.x may silently rename the output file, so fall back to a
+        # glob scan and rename if the expected path is absent.
         img_path = os.path.join(out_dir, "ocr_result.jpg")
         try:
             first.save_to_img(img_path)
-            response["ocr_image"] = img_path
+            if not os.path.exists(img_path):
+                candidates = _glob.glob(os.path.join(out_dir, "*.jpg")) + \
+                             _glob.glob(os.path.join(out_dir, "*.png"))
+                if candidates:
+                    os.rename(max(candidates, key=os.path.getmtime), img_path)
+            if os.path.exists(img_path):
+                response["ocr_image"] = img_path
         except Exception as e_img:
             response["error"] = f"Failed saving OCR image: {e_img}"
+
         # Save JSON
         json_path = os.path.join(out_dir, "ocr_result.json")
         try:
             first.save_to_json(json_path)
-            response["ocr_json"] = json_path
+            if not os.path.exists(json_path):
+                candidates = _glob.glob(os.path.join(out_dir, "*.json"))
+                if candidates:
+                    os.rename(max(candidates, key=os.path.getmtime), json_path)
+            if os.path.exists(json_path):
+                response["ocr_json"] = json_path
+            else:
+                prev = response.get("error")
+                response["error"] = (prev + "; " if prev else "") + \
+                                     "save_to_json produced no output file"
         except Exception as e_json:
-            prev_err = response.get("error")
-            response["error"] = (prev_err + f"; {e_json}" if prev_err else f"Failed saving OCR json: {e_json}")
-        # Mark success if at least one artifact saved
+            prev = response.get("error")
+            response["error"] = (prev + f"; {e_json}" if prev else f"Failed saving OCR json: {e_json}")
+
         if response["ocr_image"] or response["ocr_json"]:
             response["status"] = "success"
-        else:
-            if "error" not in response:
-                response["error"] = "Artifacts not saved"
+        elif "error" not in response:
+            response["error"] = "Artifacts not saved"
+
         return response
+
     except Exception as e:
         response["error"] = f"OCR execution failed: {e}"
         return response
