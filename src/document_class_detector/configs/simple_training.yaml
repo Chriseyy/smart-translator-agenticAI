@@ -1,0 +1,23 @@
+exp_name: visionnet
+ckpt_dir: checkpoints
+track_with: wandb
+wandb_project: advanceddlteam5
+wandb_entity: null
+
+n_train: 60000
+n_val: 10000
+n_test: 40000
+image_size: 224
+batch_size: 16
+num_classes: 16
+
+epochs: 100
+optimizer: "sgd"   # or "adam"
+lr_scheduler: "cosin"   # or "none"
+warmup_epochs: 0
+lr: 0.0010473
+momentum: 0.62027
+weight_decay: 0.0000050921
+seed: 42
+
+device: cuda # or "cpu"
